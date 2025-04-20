@@ -6,11 +6,11 @@ import requests
 import base64
 from dotenv import load_dotenv
 from datetime import datetime
-import urllib.request  # ✅ これを追加！
+import urllib.request
 import streamlit.components.v1 as components
 from my_modules import model_create
 import openai
-
+import trimesh
 
 # 環境変数読み込み
 load_dotenv(".env")
@@ -19,10 +19,6 @@ load_dotenv(".env")
 open_api_key = os.getenv("OPENAI_API_KEY") or st.secrets["OPENAI_API_KEY"]
 # sta_api_key = os.getenv('STABILITY_API_KEY') or st.secrets['STABILITY_API_KEY']
 tripo_api_key = os.getenv('TRIPO_API_KEY') or st.secrets['TRIPO_API_KEY']
-
-# if not api_key:
-#     st.error("APIキーが見つかりません。")
-#     st.stop()
 
 # OpenAIクライアント初期化（v1以降）
 openai.api_key = open_api_key 
@@ -66,7 +62,9 @@ image_strength = st.sidebar.slider(
 
 uploaded_file = st.file_uploader("画像をアップロード（PNG, JPG）", type=["png", "jpg", "jpeg"])
 
-    # ========== 写真 → アニメ風画像（GPTベース） ==========
+# =============================
+# 画像アップロード・生成ステップ
+# =============================
 if uploaded_file:
     input_image = Image.open(uploaded_file).convert("RGB")
     st.image(input_image, caption="アップロード画像")
@@ -128,14 +126,14 @@ if uploaded_file:
             )
 
 # =============================
-# ② 3Dモデル生成ステップ
+# 3Dモデル生成ステップ
 # =============================
 # 3Dモデル生成クラスからインスタンスを設定
 ModelCreate = model_create.ModelCreate(tripo_api_key,
                                        tripo_upload_url,
                                        tripo_task_url)
 
-if st.session_state["anime_image_bytes"]:
+if st.session_state.get("anime_image_bytes"):
     if st.button("② 3Dモデルを生成"):
         with open("temp_anime_image.png", "wb") as f:
             f.write(st.session_state["anime_image_bytes"])
@@ -153,7 +151,7 @@ if st.session_state["anime_image_bytes"]:
             model_path = ModelCreate.model_download(result)
             st.session_state["model_file_path"] = model_path
 
-            st.subheader("🌀 生成された3Dモデル（GLB）ビュー")
+            st.subheader("生成された3Dモデルビュー")
 
             with open(model_path, "rb") as f:
                 glb_bytes = f.read()
@@ -185,11 +183,39 @@ if st.session_state["anime_image_bytes"]:
             )
 
             st.success("3Dモデル生成完了 🎉")
-            st.write(f"保存先: {model_path}")
+
         else:
             st.error("3Dモデル生成に失敗しました")
 # =============================
-# ③ 表示
+# 表示
 # =============================
 if st.session_state.get("model_file_path"):
     st.subheader("生成された3Dモデル（GLB）")
+
+# =============================
+# GLB → STL変換とダウンロード
+# =============================
+if st.session_state.get("model_file_path"):
+    st.subheader("📦 3DモデルをSTL形式でダウンロード")
+
+    # GLBファイルのパスを取得
+    glb_path = st.session_state["model_file_path"]
+
+    # GLBファイルからメッシュを読み込み
+    mesh = trimesh.load(glb_path, file_type='glb')
+
+    # STL形式でバイナリデータに変換
+    stl_io = io.BytesIO()                   # メモリ上のバイナリファイルを扱う
+    mesh.export(stl_io, file_type='stl')    # メッシュ化した3DモデルをSTLに変換してバイナリに書き込み
+    stl_data = stl_io.getvalue()            # バイナリをbytes型で取得
+
+    # ダウンロードボタン（変換と一体化）
+    st.download_button(
+        label="STL形式に変換してダウンロード",
+        data=stl_data,
+        file_name=os.path.basename(glb_path).replace(".glb", ".stl"),
+        mime="application/sla"
+    )
+
+
+
