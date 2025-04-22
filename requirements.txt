@@ -5,7 +5,10 @@ trimesh
 
 
 numpy
+
+--extra-index-url https://cadquery.github.io/cq_warehouse
 cadquery
+
 pyvista
 stpyvista
 vtk
