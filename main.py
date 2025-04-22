@@ -34,6 +34,14 @@ if 'anime_image_bytes' not in st.session_state:
     st.session_state['anime_image_bytes'] = None
 if 'model_file_path' not in st.session_state:
     st.session_state['model_file_path'] = None
+if "generated_url" not in st.session_state:
+    st.session_state["generated_url"] = None
+if "temp_filename" not in st.session_state:
+    st.session_state["temp_filename"] = None
+if "image_description" not in st.session_state:
+    st.session_state["image_description"] = None
+if "uploaded_image" not in st.session_state:
+    st.session_state["uploaded_image"] = None
 
 # UI構成
 st.title("写真 → 2Dアニメ変換 → 3Dモデル生成アプリ")
@@ -51,22 +59,16 @@ style_option = st.sidebar.radio(
      "マンガ風・モノクロインクスタイル"]
 )
 
-# サイドバーに画像の影響度を調整するスライダーを追加
-image_strength = st.sidebar.slider(
-    "アニメ変換における元画像の影響度（低いほどアニメ化が強く出る）",
-    min_value=0.1,
-    max_value=1.0,
-    value=0.35,
-    step=0.05
-)
-
-uploaded_file = st.file_uploader("画像をアップロード（PNG, JPG）", type=["png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("画像をアップロード（PNG, JPG）",
+                                 type=["png", "jpg", "jpeg"])
 
 # =============================
 # 画像アップロード・生成ステップ
 # =============================
 if uploaded_file:
+    # 新しく画像がアップロードされた場合のみ読み込む
     input_image = Image.open(uploaded_file).convert("RGB")
+    st.session_state["uploaded_image"] = input_image
     st.image(input_image, caption="アップロード画像")
 
     if st.button("① アニメ風に変換（GPTベース）"):
@@ -89,10 +91,13 @@ if uploaded_file:
                     }
                 ]
             )
+            # 画像解析コメントをsession_stateに保存
             description = response.choices[0].message.content
+            st.session_state["image_description"] = description
+
 
         st.success("画像特徴の抽出完了")
-        st.write("🔍 GPTによる説明（折りたたみ）")
+        st.write("GPTによる説明（折りたたみ）")
         with st.expander("画像の説明"):
             st.write(description)
 
@@ -107,31 +112,40 @@ if uploaded_file:
                 n=1,
                 size="1024x1024"
             )
+            # 生成した画像のURLを取得・保存
             generated_url = image_response.data[0].url
-            st.image(generated_url, caption=f"{style_option}で変換された画像", use_column_width=True)
+            st.session_state["generated_url"] = generated_url
+            
 
             # ダウンロード用に保存
             temp_filename = f"anime_{datetime.now():%Y%m%d%H%M%S}.png"
+            st.session_state["temp_filename"] = temp_filename
             urllib.request.urlretrieve(generated_url, temp_filename)
-
             with open(temp_filename, "rb") as f:
                 st.session_state["anime_image_bytes"] = f.read()
 
-            # ダウンロードボタン
-            st.download_button(
-                label="アニメ画像をダウンロード",
-                data=st.session_state["anime_image_bytes"],
-                file_name=temp_filename,
-                mime="image/png"
-            )
+if st.session_state.get("generated_url"):
+    # 生成画像画像表示
+    st.image(st.session_state["generated_url"],
+             caption=f"{style_option}で変換された画像",
+             use_column_width=True)
 
-# =============================
+    # ダウンロードボタン
+    st.download_button(
+        label="アニメ画像をダウンロード",
+        data=st.session_state["anime_image_bytes"],
+        file_name=st.session_state["temp_filename"],
+        mime="image/png"
+    )
+
+# =========================
 # 3Dモデル生成ステップ
 # =============================
 # 3Dモデル生成クラスからインスタンスを設定
 ModelCreate = model_create.ModelCreate(tripo_api_key,
                                        tripo_upload_url,
                                        tripo_task_url)
+
 
 if st.session_state.get("anime_image_bytes"):
     if st.button("② 3Dモデルを生成"):
@@ -151,37 +165,6 @@ if st.session_state.get("anime_image_bytes"):
             model_path = ModelCreate.model_download(result)
             st.session_state["model_file_path"] = model_path
 
-            st.subheader("生成された3Dモデルビュー")
-
-            with open(model_path, "rb") as f:
-                glb_bytes = f.read()
-                glb_base64 = base64.b64encode(glb_bytes).decode()
-
-            components.html(
-                f"""
-                <html>
-                <head>
-                  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
-                </head>
-                <body>
-                  <model-viewer
-                    src="data:model/gltf-binary;base64,{glb_base64}"
-                    alt="3D Model"
-                    auto-rotate
-                    camera-controls
-                    camera-orbit="45deg 70deg 2.5m"
-                    min-camera-orbit="auto 0deg auto"
-                    max-camera-orbit="auto 100deg auto"
-                    min-field-of-view="20deg"
-                    max-field-of-view="80deg"
-                    style="width: 100%; height: 600px; background-color: #f0f0f0;">
-                  </model-viewer>
-                </body>
-                </html>
-                """,
-                height=650
-            )
-
             st.success("3Dモデル生成完了 🎉")
 
         else:
@@ -190,7 +173,38 @@ if st.session_state.get("anime_image_bytes"):
 # 表示
 # =============================
 if st.session_state.get("model_file_path"):
-    st.subheader("生成された3Dモデル（GLB）")
+    st.subheader("生成された3Dモデルビュー")
+
+    with open(st.session_state["model_file_path"], "rb") as f:
+        glb_bytes = f.read()
+        glb_base64 = base64.b64encode(glb_bytes).decode()
+
+    components.html(
+        f"""
+        <html>
+        <head>
+          <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+        </head>
+        <body>
+          <model-viewer
+            src="data:model/gltf-binary;base64,{glb_base64}"
+            alt="3D Model"
+            auto-rotate
+            camera-controls
+            camera-orbit="45deg 70deg 2.5m"
+            min-camera-orbit="auto 0deg auto"
+            max-camera-orbit="auto 100deg auto"
+            min-field-of-view="20deg"
+            max-field-of-view="80deg"
+            style="width: 100%; height: 600px; background-color: #f0f0f0;">
+          </model-viewer>
+        </body>
+        </html>
+        """,
+        height=650
+    )
+
+
 
 # =============================
 # GLB → STL変換とダウンロード
