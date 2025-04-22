@@ -2,3 +2,10 @@ dotenv
 streamlit
 openai
 trimesh
+
+
+numpy
+cadquery
+pyvista
+stpyvista
+vtk
